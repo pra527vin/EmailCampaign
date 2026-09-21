@@ -1,0 +1,33 @@
+{
+  "name": "@mailstrive/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-cutting domain code shared by the API and the email worker.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "clean": "rimraf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.717.0",
+    "@prisma/client": "^6.2.1",
+    "bullmq": "^5.34.6",
+    "ioredis": "^5.4.2",
+    "nodemailer": "^10.0.10",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nodemailer": "^6.4.24",
+    "typescript": "^5.7.2"
+  }
+}

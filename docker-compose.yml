@@ -1,0 +1,115 @@
+name: mailstrive
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mailstrive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mailstrive}
+      POSTGRES_DB: ${POSTGRES_DB:-mailstrive}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Other services wait on this, so a slow first boot cannot race them.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-mailstrive} -d ${POSTGRES_DB:-mailstrive}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly keeps queued jobs across a restart of the broker itself.
+    command: ['redis-server', '--appendonly', 'yes', '--save', '60', '1']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies migrations, then exits. Everything else waits for it.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: 'no'
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mailstrive:mailstrive@postgres:5432/mailstrive?schema=public}
+    command: ['npx', 'prisma', 'migrate', 'deploy', '--schema', 'prisma/schema.prisma']
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mailstrive:mailstrive@postgres:5432/mailstrive?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    ports:
+      - '${API_PORT:-4000}:4000'
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mailstrive:mailstrive@postgres:5432/mailstrive?schema=public}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    # Scale with `docker compose up -d --scale worker=3`. The BullMQ rate
+    # limiter is shared through Redis, so replicas divide the SES send budget
+    # rather than each claiming the full rate.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Give in-flight sends time to finish before the container is killed.
+    stop_grace_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Server-side only: the browser always talks to the Next.js origin.
+      BACKEND_INTERNAL_URL: http://api:4000
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-mailstrive_session}
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  redis-data:
+  uploads:

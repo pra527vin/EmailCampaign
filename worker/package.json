@@ -1,0 +1,24 @@
+{
+  "name": "@mailstrive/worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BullMQ workers that dispatch campaigns and deliver individual emails through Amazon SES.",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --env-file=../.env src/index.ts",
+    "build": "tsc -b",
+    "start": "node --env-file-if-exists=../.env dist/index.js",
+    "typecheck": "tsc -b --pretty",
+    "clean": "rimraf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mailstrive/shared": "*",
+    "@prisma/client": "^6.2.1",
+    "bullmq": "^5.34.6",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

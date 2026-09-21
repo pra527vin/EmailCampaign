@@ -1,0 +1,18 @@
+{
+  // Type-checks the test suite without emitting. Kept separate from
+  // tsconfig.json so compiled test code never lands in the production image.
+  //
+  // `references` is not inherited through `extends`, so it is restated here;
+  // it is what makes `@mailstrive/shared` resolve to the built declarations
+  // instead of dragging shared/src into this project's rootDir.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "rootDir": "."
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

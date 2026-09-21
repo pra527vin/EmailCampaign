@@ -1,0 +1,9 @@
+email,first_name,last_name,company,store_name,store_url,plan,city
+amelia.stone@example.com,Amelia,Stone,Stone Goods Ltd,Stone Goods,https://stonegoods.example.com,Pro,Manchester
+raj.patel@example.com,Raj,Patel,Patel Traders,Patel Traders,https://pateltraders.example.com,Starter,Leicester
+mei.chen@example.com,Mei,Chen,Lantern Supply Co,Lantern Supply,https://lanternsupply.example.com,Pro,Vancouver
+tomas.silva@example.com,Tomas,Silva,Silva Bikes,Silva Bikes,https://silvabikes.example.com,Growth,Lisbon
+nour.haddad@example.com,Nour,Haddad,Cedar Home,Cedar Home,https://cedarhome.example.com,Starter,Beirut
+finn.olsen@example.com,Finn,Olsen,Nordic Tools,Nordic Tools,https://nordictools.example.com,Growth,Oslo
+priya.nair@example.com,Priya,Nair,Nair Textiles,Nair Textiles,https://nairtextiles.example.com,Pro,Kochi
+lucas.meyer@example.com,Lucas,Meyer,Meyer Kaffee,Meyer Kaffee,https://meyerkaffee.example.com,Starter,Hamburg

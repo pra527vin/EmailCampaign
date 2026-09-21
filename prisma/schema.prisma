@@ -1,0 +1,320 @@
+// ---------------------------------------------------------------------------
+// MailStrive - PostgreSQL schema
+//
+// Design notes:
+//  * `recipients` holds the immutable imported data for a list; a campaign
+//    never mutates it. Per-send state lives in `campaign_recipients`, so the
+//    same list can be mailed many times and each run keeps its own history.
+//  * `campaign_recipients` is the unit of work for the queue. The
+//    (campaign_id, status) index is what the dispatcher pages through, and the
+//    (campaign_id, recipient_id) unique constraint is the hard guarantee that a
+//    recipient cannot be enqueued twice for one campaign.
+//  * Counters on `campaigns` are denormalised on purpose: dashboards and the
+//    progress poller read them constantly and must not scan millions of rows.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum TemplateStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum RecipientListStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum CampaignStatus {
+  DRAFT
+  QUEUED
+  SENDING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  QUEUED
+  SENDING
+  SENT
+  FAILED
+  BOUNCED
+  COMPLAINT
+  UNSUBSCRIBED
+  SKIPPED
+}
+
+enum EmailEventType {
+  QUEUED
+  SEND
+  DELIVERY
+  DELIVERY_DELAY
+  BOUNCE
+  COMPLAINT
+  REJECT
+  OPEN
+  CLICK
+  RENDERING_FAILURE
+  SUBSCRIPTION
+  FAILED
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBE
+  BOUNCE
+  COMPLAINT
+  MANUAL
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique @db.Citext
+  name         String
+  passwordHash String    @map("password_hash")
+  role         UserRole  @default(MEMBER)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions       Session[]
+  templates      EmailTemplate[]
+  recipientLists RecipientList[]
+  campaigns      Campaign[]
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+/// Server-side session records. The cookie carries a signed JWT whose `sid`
+/// points here, which makes logout and forced revocation actually effective.
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model EmailTemplate {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  name        String
+  description String?
+  subject     String
+  htmlContent String         @map("html_content")
+  textContent String         @map("text_content")
+  status      TemplateStatus @default(DRAFT)
+  /// Variable names discovered in the template body, e.g. name, store_name.
+  variables   String[]       @default([])
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns Campaign[]
+
+  @@unique([userId, name])
+  @@index([userId, status])
+  @@map("email_templates")
+}
+
+model RecipientList {
+  id             String              @id @default(uuid()) @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  name           String
+  description    String?
+  sourceFileName String              @map("source_file_name")
+  sourceFileSize Int                 @map("source_file_size")
+  /// SHA-256 of the uploaded file, so a re-upload of the same file is obvious.
+  sourceFileHash String              @map("source_file_hash")
+  storedFilePath String?             @map("stored_file_path")
+  status         RecipientListStatus @default(PROCESSING)
+  totalRows      Int                 @default(0) @map("total_rows")
+  validCount     Int                 @default(0) @map("valid_count")
+  invalidCount   Int                 @default(0) @map("invalid_count")
+  duplicateCount Int                 @default(0) @map("duplicate_count")
+  importedCount  Int                 @default(0) @map("imported_count")
+  /// Column headers as they appeared in the CSV, order preserved.
+  columns        String[]            @default([])
+  /// First N rejected rows with the reason, for the import summary UI.
+  errorSample    Json?               @map("error_sample")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipients Recipient[]
+  campaigns  Campaign[]
+
+  @@index([userId, createdAt])
+  @@map("recipient_lists")
+}
+
+model Recipient {
+  id        String  @id @default(uuid()) @db.Uuid
+  listId    String  @map("list_id") @db.Uuid
+  email     String  @db.Citext
+  name      String?
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+  company   String?
+  storeName String? @map("store_name")
+  storeUrl  String? @map("store_url")
+  /// Every non-standard CSV column, preserved verbatim for personalisation.
+  customFields Json     @default("{}") @map("custom_fields")
+  rowNumber    Int      @map("row_number")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  list               RecipientList       @relation(fields: [listId], references: [id], onDelete: Cascade)
+  campaignRecipients CampaignRecipient[]
+
+  @@unique([listId, email])
+  @@index([email])
+  @@map("recipients")
+}
+
+model Campaign {
+  id               String         @id @default(uuid()) @db.Uuid
+  userId           String         @map("user_id") @db.Uuid
+  listId           String         @map("list_id") @db.Uuid
+  templateId       String         @map("template_id") @db.Uuid
+  name             String
+  subject          String
+  fromEmail        String         @map("from_email")
+  fromName         String?        @map("from_name")
+  replyToEmail     String?        @map("reply_to_email")
+  status           CampaignStatus @default(DRAFT)
+  totalRecipients  Int            @default(0) @map("total_recipients")
+  sentCount        Int            @default(0) @map("sent_count")
+  failedCount      Int            @default(0) @map("failed_count")
+  bounceCount      Int            @default(0) @map("bounce_count")
+  complaintCount   Int            @default(0) @map("complaint_count")
+  unsubscribeCount Int            @default(0) @map("unsubscribe_count")
+  skippedCount     Int            @default(0) @map("skipped_count")
+  /// Per-campaign override of the global SES send rate (messages/second).
+  sendRatePerSecond Int?      @map("send_rate_per_second")
+  lastError         String?   @map("last_error")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startedAt         DateTime? @map("started_at") @db.Timestamptz(3)
+  pausedAt          DateTime? @map("paused_at") @db.Timestamptz(3)
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz(3)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  list       RecipientList       @relation(fields: [listId], references: [id], onDelete: Restrict)
+  template   EmailTemplate       @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  recipients CampaignRecipient[]
+  events     EmailEvent[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id          String                  @id @default(uuid()) @db.Uuid
+  campaignId  String                  @map("campaign_id") @db.Uuid
+  recipientId String                  @map("recipient_id") @db.Uuid
+  email       String                  @db.Citext
+  status      CampaignRecipientStatus @default(PENDING)
+  attempts    Int                     @default(0)
+  /// SES message id; also the join key for asynchronous SNS events.
+  messageId     String?   @unique @map("message_id")
+  errorCode     String?   @map("error_code")
+  errorMessage  String?   @map("error_message")
+  lastAttemptAt DateTime? @map("last_attempt_at") @db.Timestamptz(3)
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  campaign  Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient Recipient    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  events    EmailEvent[]
+
+  @@unique([campaignId, recipientId])
+  @@index([campaignId, status])
+  @@index([campaignId, createdAt])
+  @@index([email])
+  @@map("campaign_recipients")
+}
+
+model EmailEvent {
+  id                  String         @id @default(uuid()) @db.Uuid
+  campaignId          String?        @map("campaign_id") @db.Uuid
+  campaignRecipientId String?        @map("campaign_recipient_id") @db.Uuid
+  messageId           String?        @map("message_id")
+  email               String?        @db.Citext
+  type                EmailEventType
+  /// Trimmed provider payload. Never contains rendered message bodies.
+  payload             Json?
+  occurredAt          DateTime       @map("occurred_at") @db.Timestamptz(3)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  campaign          Campaign?          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignRecipient CampaignRecipient? @relation(fields: [campaignRecipientId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, type])
+  @@index([messageId])
+  @@index([occurredAt])
+  @@map("email_events")
+}
+
+/// Global suppression list. Checked at import time, at dispatch time and again
+/// immediately before handing a message to SES.
+model SuppressionEntry {
+  id         String            @id @default(uuid()) @db.Uuid
+  email      String            @unique @db.Citext
+  reason     SuppressionReason
+  source     String?
+  campaignId String?           @map("campaign_id") @db.Uuid
+  notes      String?
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([reason])
+  @@map("suppression_list")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "types": ["node"],
+    "paths": {
+      "@mailstrive/shared": ["../shared/src/index.ts"]
+    }
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["src/**/*.ts"]
+}

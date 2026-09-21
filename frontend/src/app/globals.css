@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * One multiplier for the whole type scale.
+   *
+   * 1 is the reference design's own density -- 13.5px body, 12.5px secondary,
+   * 11.5px column headers. It is deliberately flat across breakpoints, because
+   * the reference specifies one set of sizes and stepping them per screen would
+   * no longer be that design. Raise this single number if it reads too small.
+   */
+  :root {
+    --type-scale: 1;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* #F5F7FA -- a touch cooler and lighter than the card surface, so white
+       cards lift off the page without needing a heavy shadow. */
+    background-color: #f5f7fa;
+    @apply font-sans text-slate-900 antialiased;
+  }
+
+  /* Visible focus for keyboard users without a ring on mouse clicks. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-600;
+  }
+
+  /* `type="search"` draws its own cancel cross in WebKit and Blink. It clears
+     the field without submitting, which would leave the results filtered by a
+     term no longer visible, so it is hidden in favour of the reset button the
+     SearchInput renders itself. */
+  input[type='search']::-webkit-search-cancel-button,
+  input[type='search']::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Tabular figures everywhere numbers are compared down a column. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Respect the system setting. Everything here is decoration; none of it
+     carries meaning that is lost when it stops moving. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* --- Navigation ---------------------------------------------------------
+     Inactive is #C3D2DE on the navy; hover lifts the background by 8% white
+     and active by 12% with full-white text. No leading marker: the fill and
+     the weight carry it, and `aria-current` carries it for screen readers. */
+  .nav-link {
+    @apply flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold
+           text-[#C3D2DE] transition-colors hover:bg-white/[0.08] hover:text-white;
+    border-radius: 8px;
+  }
+
+  .nav-link-active {
+    @apply bg-white/[0.12] text-white hover:bg-white/[0.12] hover:text-white;
+  }
+
+  /* Keyboard focus inside the sidebar needs a colour that survives the navy;
+     the brand blue does not. */
+  .nav-link:focus-visible {
+    outline-color: #8fd46a;
+  }
+
+  /* The logo wordmark, painted with the same gradient as the mark.
+     Written as plain CSS rather than `@apply`, so the wordmark does not depend
+     on a background-image utility being generated. */
+  .brand-wordmark {
+    background-image: linear-gradient(100deg, #1e9e5a 0%, #8fd46a 38%, #3699af 70%, #4b87c7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Scroll hint for tables that overflow on narrow screens. */
+  .scroll-shadow {
+    background:
+      linear-gradient(to right, white 30%, rgb(255 255 255 / 0)) left / 24px 100% no-repeat,
+      linear-gradient(to left, white 30%, rgb(255 255 255 / 0)) right / 24px 100% no-repeat,
+      linear-gradient(to right, rgb(15 27 42 / 0.07), rgb(15 27 42 / 0)) left / 10px 100% no-repeat,
+      linear-gradient(to left, rgb(15 27 42 / 0.07), rgb(15 27 42 / 0)) right / 10px 100% no-repeat;
+    background-attachment: local, local, scroll, scroll;
+  }
+}
