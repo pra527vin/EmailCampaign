@@ -157,7 +157,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   }, [id]);
 
   const loadRecipients = useCallback(async () => {
-    const query = new URLSearchParams({ page: String(page), pageSize: '25' });
+    const query = new URLSearchParams({ page: String(page), pageSize: '10' });
     if (statusFilter) query.set('status', statusFilter);
     if (appliedSearch) query.set('search', appliedSearch);
     try {
@@ -301,6 +301,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       mono: false,
     },
     { label: 'Template', value: campaign.template?.name ?? '—', mono: false },
+    {
+      label: 'Recipient range',
+      value:
+        campaign.recipientRangeStart !== null && campaign.recipientRangeEnd !== null
+          ? `Rows ${formatNumber(campaign.recipientRangeStart)}–${formatNumber(campaign.recipientRangeEnd)}`
+          : 'Whole list',
+      mono: false,
+    },
+    {
+      label: 'Batch size',
+      value: campaign.batchSize ? `${formatNumber(campaign.batchSize)} at a time` : 'Platform default',
+      mono: false,
+    },
   ];
 
   const filterNote = statusFilter
@@ -533,167 +546,165 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </div>
       </Card>
 
-      <div className="mt-5 grid gap-5 sm:mt-6 sm:gap-6 lg:grid-cols-10 lg:gap-x-[10px]">
-        <Card
-          title="Configuration"
-          hint={
-            <Tooltip label="configuration" side="bottom" align="start">
-              Duplicating the campaign copies all of these settings.
-            </Tooltip>
-          }
-          description="What this campaign sends with."
-          className="lg:col-span-3"
-          padded={false}
-        >
-          <dl className="px-5 py-2">
-            {config.map((row) => (
-              <div key={row.label} className="border-b border-[#F2F4F7] py-[11px] last:border-b-0">
-                <dt className="mb-[3px] text-xs text-slate-500">{row.label}</dt>
-                <dd
-                  className={`break-words text-xs font-semibold text-slate-900 ${
-                    row.mono ? 'font-mono' : ''
-                  }`}
-                >
-                  {row.value}
-                </dd>
-              </div>
+      <Card
+        title="Configuration"
+        hint={
+          <Tooltip label="configuration" side="bottom" align="start">
+            Duplicating the campaign copies all of these settings.
+          </Tooltip>
+        }
+        description="What this campaign sends with."
+        className="mt-5 sm:mt-6"
+        padded={false}
+        actions={
+          <Link
+            href={`/templates/${campaign.templateId}`}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-[9px] text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-100"
+          >
+            <Glyph name="view" />
+            Open template
+          </Link>
+        }
+      >
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 px-5 py-5 sm:grid-cols-2 lg:grid-cols-4">
+          {config.map((row) => (
+            <div key={row.label} className="min-w-0">
+              <dt className="mb-[3px] text-xs text-slate-500">{row.label}</dt>
+              <dd
+                className={`break-words text-xs font-semibold text-slate-900 ${
+                  row.mono ? 'font-mono' : ''
+                }`}
+              >
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Card>
+
+      <Card
+        title="Recipients"
+        className="mt-5 sm:mt-6"
+        hint={
+          <Tooltip label="the recipients table" side="bottom" align="start">
+            Sent at is when Amazon SES accepted the message, not when it
+            arrived.
+          </Tooltip>
+        }
+        description="Every address in this campaign and what happened to it."
+        actions={
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={handleExport}
+            loading={exporting}
+          >
+            Export CSV
+          </Button>
+        }
+      >
+        <div className="mb-4 flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+          <Select
+            value={statusFilter}
+            aria-label="Filter recipients by status"
+            sizing="sm"
+            onChange={(event) => {
+              const next = event.target.value as '' | RecipientStatus;
+              setPage(1);
+              setStatusFilter(next);
+              // Keep the enlarged state and the table in step, but leave the
+              // panel on its last pick when the filter is cleared -- there is
+              // no "all states" reading for a single big number.
+              if (next) setFocus(next);
+            }}
+            className="sm:w-40"
+          >
+            <option value="">All statuses</option>
+            {DELIVERY_STATES.map((state) => (
+              <option key={state.status} value={state.status}>
+                {state.label}
+              </option>
             ))}
-          </dl>
-          <div className="px-5 pb-5">
-            <Link
-              href={`/templates/${campaign.templateId}`}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-[9px] text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-100"
-            >
-              <Glyph name="view" />
-              Open template
-            </Link>
-          </div>
-        </Card>
+          </Select>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            onSubmit={() => {
+              setPage(1);
+              setAppliedSearch(search.trim());
+            }}
+            onReset={() => {
+              setSearch('');
+              setPage(1);
+              setAppliedSearch('');
+            }}
+            placeholder="Search email"
+            label="Search campaign recipients"
+          />
+        </div>
 
-        <Card
-          title="Recipients"
-          className="lg:col-span-7"
-          hint={
-            <Tooltip label="the recipients table" side="bottom" align="start">
-              Sent at is when Amazon SES accepted the message, not when it
-              arrived.
-            </Tooltip>
-          }
-          description="Every address in this campaign and what happened to it."
-          actions={
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={handleExport}
-              loading={exporting}
-            >
-              Export CSV
-            </Button>
-          }
-        >
-          <div className="mb-4 flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-            <Select
-              value={statusFilter}
-              aria-label="Filter recipients by status"
-              sizing="sm"
-              onChange={(event) => {
-                const next = event.target.value as '' | RecipientStatus;
-                setPage(1);
-                setStatusFilter(next);
-                // Keep the enlarged state and the table in step, but leave the
-                // panel on its last pick when the filter is cleared -- there is
-                // no "all states" reading for a single big number.
-                if (next) setFocus(next);
-              }}
-              className="sm:w-40"
-            >
-              <option value="">All statuses</option>
-              {DELIVERY_STATES.map((state) => (
-                <option key={state.status} value={state.status}>
-                  {state.label}
-                </option>
-              ))}
-            </Select>
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              onSubmit={() => {
-                setPage(1);
-                setAppliedSearch(search.trim());
-              }}
-              onReset={() => {
-                setSearch('');
-                setPage(1);
-                setAppliedSearch('');
-              }}
-              placeholder="Search email"
-              label="Search campaign recipients"
+        {!recipients ? (
+          <Spinner label="Loading recipients" />
+        ) : recipients.items.length === 0 ? (
+          <EmptyState
+            title="No recipients matched"
+            description="Try a different status filter or search term."
+          />
+        ) : (
+          <>
+            <DataTable
+              items={recipients.items}
+              getKey={(row) => row.id}
+              columns={[
+                {
+                  key: 'email',
+                  header: 'Email',
+                  primary: true,
+                  cell: (row) => (
+                    <span className="block break-all font-mono text-xs">{row.email}</span>
+                  ),
+                },
+                {
+                  key: 'name',
+                  header: 'Name',
+                  hide: 'lg',
+                  cell: (row) => row.recipient?.name ?? row.recipient?.storeName ?? '—',
+                },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  cell: (row) => <StatusBadge status={row.status} />,
+                },
+                {
+                  key: 'attempts',
+                  header: 'Attempts',
+                  align: 'right',
+                  hide: 'xl',
+                  cell: (row) => <span className="tabular-nums">{row.attempts}</span>,
+                },
+                {
+                  key: 'sentAt',
+                  header: 'Sent at',
+                  hide: 'md',
+                  cell: (row) => (
+                    <span className="whitespace-nowrap text-slate-500">
+                      {formatDate(row.sentAt)}
+                    </span>
+                  ),
+                },
+              ]}
             />
-          </div>
-
-          {!recipients ? (
-            <Spinner label="Loading recipients" />
-          ) : recipients.items.length === 0 ? (
-            <EmptyState
-              title="No recipients matched"
-              description="Try a different status filter or search term."
+            <Pagination
+              page={recipients.page}
+              totalPages={recipients.totalPages}
+              total={recipients.total}
+              onChange={setPage}
             />
-          ) : (
-            <>
-              <DataTable
-                items={recipients.items}
-                getKey={(row) => row.id}
-                columns={[
-                  {
-                    key: 'email',
-                    header: 'Email',
-                    primary: true,
-                    cell: (row) => (
-                      <span className="block break-all font-mono text-xs">{row.email}</span>
-                    ),
-                  },
-                  {
-                    key: 'name',
-                    header: 'Name',
-                    hide: 'lg',
-                    cell: (row) => row.recipient?.name ?? row.recipient?.storeName ?? '—',
-                  },
-                  {
-                    key: 'status',
-                    header: 'Status',
-                    cell: (row) => <StatusBadge status={row.status} />,
-                  },
-                  {
-                    key: 'attempts',
-                    header: 'Attempts',
-                    align: 'right',
-                    hide: 'xl',
-                    cell: (row) => <span className="tabular-nums">{row.attempts}</span>,
-                  },
-                  {
-                    key: 'sentAt',
-                    header: 'Sent at',
-                    hide: 'md',
-                    cell: (row) => (
-                      <span className="whitespace-nowrap text-slate-500">
-                        {formatDate(row.sentAt)}
-                      </span>
-                    ),
-                  },
-                ]}
-              />
-              <Pagination
-                page={recipients.page}
-                totalPages={recipients.totalPages}
-                total={recipients.total}
-                onChange={setPage}
-              />
-              {filterNote && <p className="pt-2 text-xs text-slate-500">{filterNote}</p>}
-            </>
-          )}
-        </Card>
-      </div>
+            {filterNote && <p className="pt-2 text-xs text-slate-500">{filterNote}</p>}
+          </>
+        )}
+      </Card>
     </>
   );
 }

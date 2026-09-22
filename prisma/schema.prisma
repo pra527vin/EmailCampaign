@@ -195,6 +195,10 @@ model Recipient {
 
   @@unique([listId, email])
   @@index([email])
+  /// Backs a campaign's recipient-range filter (WHERE listId = ? AND rowNumber
+  /// BETWEEN ? AND ?), so splitting a large list across campaigns stays a
+  /// range scan instead of a full-list sort.
+  @@index([listId, rowNumber])
   @@map("recipients")
 }
 
@@ -218,6 +222,16 @@ model Campaign {
   skippedCount     Int            @default(0) @map("skipped_count")
   /// Per-campaign override of the global SES send rate (messages/second).
   sendRatePerSecond Int?      @map("send_rate_per_second")
+  /// Recipients per dispatch chunk (e.g. 50, then the next 50). Each chunk is
+  /// claimed atomically before it is queued, so the same recipient can never
+  /// land in two chunks. Null falls back to DISPATCH_BATCH_SIZE.
+  batchSize         Int?      @map("batch_size")
+  /// Restricts this campaign to Recipient.rowNumber in
+  /// [recipientRangeStart, recipientRangeEnd] (inclusive). Both null means the
+  /// whole list. Lets one list be split across campaigns -- rows 1-50 here,
+  /// 51-100 in the next -- without either campaign's recipients overlapping.
+  recipientRangeStart Int?    @map("recipient_range_start")
+  recipientRangeEnd   Int?    @map("recipient_range_end")
   lastError         String?   @map("last_error")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)

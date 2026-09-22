@@ -23,13 +23,58 @@ export interface EmailHtmlWarning {
 /** Below this, a message body is effectively empty for a reader. */
 const MINIMUM_TEXT_LENGTH = 120;
 
+/**
+ * Markup that is commented out, which for email means the conditional comments
+ * every serious template carries.
+ *
+ * `<!--[if mso]> ... <![endif]-->` hands Outlook its own version of a block --
+ * the 96 DPI settings header, a VML button, a table only it needs -- and no
+ * other client parses a byte of it. Reporting on what is in there describes a
+ * message nobody receives, so the checks run against what is left once the
+ * comments are gone.
+ *
+ * The revealed form, `<!--[if !mso]><!--> ... <!--<![endif]-->`, deliberately
+ * keeps its content OUTSIDE the comment markers so that everything except
+ * Outlook renders it. Dropping the markers leaves that content in place, which
+ * is exactly right.
+ */
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+
+/**
+ * Stylesheet hosts that serve nothing but web fonts.
+ *
+ * An external stylesheet normally means the design lives in a file the client
+ * will throw away, and the message lands unstyled. A font stylesheet is the
+ * opposite case: the layout is already inline, every stack it upgrades ends in
+ * a family installed everywhere, and a client that refuses the request renders
+ * the message in the fallback face rather than breaking it. Flagging that as
+ * an error would train people to ignore the one that matters.
+ */
+const FONT_STYLESHEET_HOSTS = [
+  'fonts.googleapis.com',
+  'fonts.gstatic.com',
+  'fonts.bunny.net',
+  'use.typekit.net',
+  'p.typekit.net',
+  'cloud.typography.com',
+  'fast.fonts.net',
+];
+
+const STYLESHEET_LINK = /<link\b[^>]*rel\s*=\s*["']?stylesheet[^>]*>/gi;
+
+function isFontStylesheet(linkTag: string): boolean {
+  const href = /href\s*=\s*["']?([^"'\s>]+)/i.exec(linkTag)?.[1] ?? '';
+  return FONT_STYLESHEET_HOSTS.some((host) => href.toLowerCase().includes(host));
+}
+
 function countMatches(html: string, pattern: RegExp): number {
   return (html.match(pattern) ?? []).length;
 }
 
-export function analyzeEmailHtml(html: string): EmailHtmlWarning[] {
+export function analyzeEmailHtml(source: string): EmailHtmlWarning[] {
   const warnings: EmailHtmlWarning[] = [];
 
+  const html = source.replace(HTML_COMMENT, '');
   const scriptCount = countMatches(html, /<script\b/gi);
   const hasNoscript = /<noscript\b/i.test(html);
   const visibleText = htmlToPlainText(html).trim();
@@ -66,7 +111,8 @@ export function analyzeEmailHtml(html: string): EmailHtmlWarning[] {
     });
   }
 
-  if (/<link\b[^>]*rel\s*=\s*["']?stylesheet/i.test(html)) {
+  const stylesheets = (html.match(STYLESHEET_LINK) ?? []).filter((tag) => !isFontStylesheet(tag));
+  if (stylesheets.length > 0) {
     warnings.push({
       code: 'EXTERNAL_STYLESHEET',
       level: 'error',

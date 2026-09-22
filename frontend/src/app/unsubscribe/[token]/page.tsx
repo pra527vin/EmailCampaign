@@ -21,7 +21,8 @@ export default function UnsubscribePage({ params }: { params: Promise<{ token: s
 
   useEffect(() => {
     api
-      .get<{ email: string }>(`/unsubscribe/${token}`)
+      // Full path: this is the stable, unversioned surface, not /api/v1.
+      .get<{ email: string }>(`/api/unsubscribe/${token}`)
       .then((data) => {
         setEmail(data.email);
         setState('ready');
@@ -36,7 +37,7 @@ export default function UnsubscribePage({ params }: { params: Promise<{ token: s
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/unsubscribe/${token}/confirm`);
+      await api.post(`/api/unsubscribe/${token}/confirm`);
       setState('done');
     } catch (caught) {
       setError(errorMessage(caught));

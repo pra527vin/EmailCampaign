@@ -18,21 +18,56 @@ import { recordAudit } from './audit.service.js';
  * never rewritten: real email HTML relies on tags and inline styles that a
  * browser-focused sanitiser would strip, and mangling it would make the preview
  * a lie. Mail clients do their own far stricter sanitisation on delivery.
+ *
+ * Anything dropped here shows up as a preview that disagrees with the message
+ * that gets sent, which is worse than useless -- so the allowlist has to cover
+ * everything the composer and a hand-written template actually emit. Static
+ * SVG shapes are in because the composer draws social icons with them;
+ * `script`, `foreignObject`, `use`, `animate` and every `on*` handler stay out,
+ * and the dashboard renders the result in an empty-sandbox iframe regardless.
  */
+/** Lower-cased for the same reason as the attributes below. */
+const SVG_TAGS = [
+  'svg', 'g', 'defs', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'rect', 'title', 'desc', 'lineargradient', 'radialgradient', 'stop',
+];
+
+/**
+ * Lower-cased throughout, because the parser behind the sanitiser lower-cases
+ * every attribute name before it is matched. Listing `viewBox` as written
+ * silently drops it, and an icon with no viewBox renders as a crop of itself.
+ * Browsers put the camel case back when they re-parse the SVG.
+ */
+const SVG_ATTRIBUTES = [
+  'viewbox', 'xmlns', 'fill', 'fill-rule', 'fill-opacity', 'clip-rule', 'stroke',
+  'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray',
+  'stroke-opacity', 'opacity', 'd', 'points', 'transform', 'preserveaspectratio',
+  'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'offset', 'stop-color',
+  'stop-opacity', 'gradientunits', 'gradienttransform',
+];
+
 const PREVIEW_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
     ...sanitizeHtml.defaults.allowedTags,
-    'img', 'style', 'center', 'font', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th',
+    'img', 'style', 'link', 'center', 'font', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th',
     'body', 'head', 'html', 'meta', 'title', 'span', 'div', 'a', 'v:roundrect', 'o:p',
+    ...SVG_TAGS,
   ],
   allowedAttributes: {
     '*': [
       'style', 'class', 'id', 'align', 'valign', 'width', 'height', 'bgcolor',
       'cellpadding', 'cellspacing', 'border', 'dir', 'lang', 'colspan', 'rowspan', 'role',
+      ...SVG_ATTRIBUTES,
     ],
     a: ['href', 'target', 'rel', 'title', 'style', 'class'],
-    img: ['src', 'alt', 'width', 'height', 'style', 'class', 'title'],
+    // `referrerpolicy` travels with every image the composer builds, and hosts
+    // that refuse a hotlinked Referer serve the picture only when it survives.
+    img: ['src', 'alt', 'width', 'height', 'style', 'class', 'title', 'referrerpolicy'],
     meta: ['charset', 'name', 'content', 'http-equiv'],
+    // Web fonts are pulled in with a stylesheet link as well as an @import,
+    // because between them they cover most clients. Dropping the link would
+    // preview a template in a fallback face it will not be delivered in.
+    link: ['rel', 'href', 'type', 'media'],
   },
   // http(s), mailto and data: images only. This is what blocks javascript: URLs.
   allowedSchemes: ['http', 'https', 'mailto'],

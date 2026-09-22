@@ -61,6 +61,63 @@ describe('analyzeEmailHtml', () => {
     expect(codes(html)).toContain('EXTERNAL_STYLESHEET');
   });
 
+  it('ignores markup that only Outlook can reach', () => {
+    // The 96 DPI settings block every email boilerplate carries. It sits in a
+    // conditional comment, so no client outside Outlook parses it -- warning
+    // about the <noscript> some versions of it wrap would describe a message
+    // nobody receives.
+    const html = `<html><head><!--[if mso]>
+        <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch>
+        </o:OfficeDocumentSettings></xml></noscript>
+        <![endif]--></head>
+      <body><p>${'Real copy a person would actually read in this message. '.repeat(4)}</p></body></html>`;
+
+    expect(codes(html)).not.toContain('CONTAINS_NOSCRIPT');
+  });
+
+  it('still flags a noscript block that recipients would really see', () => {
+    const html = `<html><body>
+        <p>${'Real copy a person would actually read in this message. '.repeat(4)}</p>
+        <noscript>Enable JavaScript to view this.</noscript>
+      </body></html>`;
+
+    expect(codes(html)).toContain('CONTAINS_NOSCRIPT');
+  });
+
+  it('keeps the content of a revealed conditional, which everything but Outlook shows', () => {
+    // The markers are commented, the content is not -- that is the whole point
+    // of the form, so stripping the markers must leave the image behind.
+    const html = `<html><body>
+        <p>${'Real copy a person would actually read in this message. '.repeat(4)}</p>
+        <!--[if !mso]><!--><img src="https://cdn.example.com/a.png"><!--<![endif]-->
+      </body></html>`;
+
+    expect(codes(html)).toContain('IMAGE_WITHOUT_ALT');
+  });
+
+  it('does not treat a web font stylesheet as a lost design', () => {
+    // The layout is inline and the stack ends in a family installed everywhere,
+    // so a client that refuses the request changes the typeface, not the email.
+    const html = `<html><head>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter&display=swap" />
+      </head>
+      <body style="font-family:Inter, Helvetica, Arial, sans-serif;">
+        <p style="margin:0;">${'Real copy a person would actually read in this message. '.repeat(4)}</p>
+      </body></html>`;
+
+    expect(codes(html)).not.toContain('EXTERNAL_STYLESHEET');
+  });
+
+  it('flags a font stylesheet alongside a real one', () => {
+    const html = `<html><head>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter" />
+        <link rel="stylesheet" href="https://example.com/site.css" />
+      </head>
+      <body><p>${'Real copy a person would actually read in this message. '.repeat(4)}</p></body></html>`;
+
+    expect(codes(html)).toContain('EXTERNAL_STYLESHEET');
+  });
+
   it('flags forms and images without alt text', () => {
     const html = `<html><body>
         <p>${'Body copy that comfortably exceeds the minimum length. '.repeat(4)}</p>

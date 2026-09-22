@@ -19,6 +19,8 @@ export function Modal({
   children,
   footer,
   size = 'md',
+  backdrop = 'default',
+  placement = 'top',
 }: {
   open: boolean;
   title: string;
@@ -29,6 +31,18 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   size?: 'md' | 'lg' | 'xl';
+  /**
+   * `blurred` when what is behind the dialog is part of the question being
+   * asked -- the dialog sits over it lightly, obscured enough to read as
+   * inactive but still legible.
+   */
+  backdrop?: 'default' | 'blurred';
+  /**
+   * `top` keeps a dialog near where the eye already is, which suits the forms
+   * that make up most of them. `center` is for the ones that are the whole
+   * screen's business rather than a step in something else.
+   */
+  placement?: 'top' | 'center';
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -91,7 +105,13 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 pt-[6vh] backdrop-blur-[1px] sm:p-4 sm:pt-[8vh]"
+      className={`fixed inset-0 z-50 flex justify-center overflow-y-auto p-3 sm:p-4 ${
+        placement === 'center' ? 'items-center' : 'items-start pt-[6vh] sm:pt-[8vh]'
+      } ${
+        backdrop === 'blurred'
+          ? 'bg-slate-900/25 backdrop-blur-[2px]'
+          : 'bg-slate-900/40 backdrop-blur-[1px]'
+      }`}
       onMouseDown={(event) => {
         // Only a click that both starts and ends on the backdrop closes it, so
         // a drag that began inside the form does not dismiss the dialog.

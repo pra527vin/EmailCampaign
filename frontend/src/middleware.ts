@@ -29,6 +29,10 @@ export const config = {
     '/dashboard/:path*',
     '/lists/:path*',
     '/templates/:path*',
+    '/compose/:path*',
+    // The composer's image proxy. Gated with the rest so the app cannot be
+    // used as an open image fetcher by anyone who is not signed in.
+    '/compose-image',
     '/campaigns/:path*',
     '/send/:path*',
     '/settings/:path*',

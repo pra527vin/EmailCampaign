@@ -63,7 +63,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (csrf) headers.set('X-CSRF-Token', csrf);
   }
 
-  const response = await fetch(path.startsWith('/api') ? path : `/api${path}`, {
+  // Bare paths hit the versioned API; a caller that needs the stable,
+  // unversioned surface (currently just /api/unsubscribe) passes the full
+  // /api/... path itself, which bypasses this prefix.
+  const response = await fetch(path.startsWith('/api') ? path : `/api/v1${path}`, {
     ...options,
     method,
     headers,

@@ -31,6 +31,15 @@ export interface CreateCampaignInput {
   fromName?: string | undefined;
   replyToEmail?: string | undefined;
   sendRatePerSecond?: number | undefined;
+  /** Recipients per dispatch chunk, e.g. 50 then the next 50. */
+  batchSize?: number | undefined;
+  /**
+   * Restricts this campaign to CSV rows [start, end] of the list (both
+   * inclusive, 1-based, matching `Recipient.rowNumber`), so one list can be
+   * split across several campaigns without any row landing in two of them.
+   */
+  recipientRangeStart?: number | undefined;
+  recipientRangeEnd?: number | undefined;
 }
 
 async function requireCampaign(userId: string, campaignId: string) {
@@ -73,6 +82,11 @@ export async function createCampaign(
   if (template.status === 'INACTIVE') {
     throw AppError.badRequest('The selected template is inactive. Activate it before using it.');
   }
+  if (input.recipientRangeStart !== undefined && input.recipientRangeStart > list.totalRows) {
+    throw AppError.badRequest(
+      `The list only has ${list.totalRows} row${list.totalRows === 1 ? '' : 's'} -- the range starts past the end of it`,
+    );
+  }
 
   const campaign = await prisma.campaign.create({
     data: {
@@ -85,6 +99,9 @@ export async function createCampaign(
       fromName: input.fromName ?? env.SES_FROM_NAME ?? null,
       replyToEmail: input.replyToEmail ?? env.SES_REPLY_TO_EMAIL ?? null,
       sendRatePerSecond: input.sendRatePerSecond ?? null,
+      batchSize: input.batchSize ?? null,
+      recipientRangeStart: input.recipientRangeStart ?? null,
+      recipientRangeEnd: input.recipientRangeEnd ?? null,
       status: 'DRAFT',
       totalRecipients: 0,
     },
@@ -140,6 +157,15 @@ export async function updateCampaign(
       ...(input.sendRatePerSecond !== undefined
         ? { sendRatePerSecond: input.sendRatePerSecond ?? null }
         : {}),
+      ...(input.batchSize !== undefined ? { batchSize: input.batchSize ?? null } : {}),
+      // Both or neither: the validation schema already refuses a lone start or
+      // end, so seeing one here means both were sent.
+      ...(input.recipientRangeStart !== undefined
+        ? {
+            recipientRangeStart: input.recipientRangeStart ?? null,
+            recipientRangeEnd: input.recipientRangeEnd ?? null,
+          }
+        : {}),
     },
   });
 
@@ -161,8 +187,17 @@ export async function updateCampaign(
  * index means calling it again after a partial failure tops up the missing rows
  * rather than duplicating work. Suppressed addresses are written as SKIPPED so
  * the campaign record still shows that they were considered.
+ *
+ * `range`, when given, restricts this to `Recipient.rowNumber` between
+ * `start` and `end` (both inclusive) -- the mechanism behind splitting one
+ * list across several campaigns (rows 1-50 in one, 51-100 in the next) with
+ * no row materialised into two of them.
  */
-async function materialiseRecipients(campaignId: string, listId: string): Promise<{
+async function materialiseRecipients(
+  campaignId: string,
+  listId: string,
+  range: { start: number; end: number } | null,
+): Promise<{
   eligible: number;
   skipped: number;
 }> {
@@ -172,7 +207,10 @@ async function materialiseRecipients(campaignId: string, listId: string): Promis
 
   for (;;) {
     const batch = await prisma.recipient.findMany({
-      where: { listId },
+      where: {
+        listId,
+        ...(range ? { rowNumber: { gte: range.start, lte: range.end } } : {}),
+      },
       orderBy: { id: 'asc' },
       take: MATERIALISE_BATCH_SIZE,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -271,10 +309,16 @@ export async function startCampaign(userId: string, campaignId: string, context:
 
   const alreadyMaterialised = await prisma.campaignRecipient.count({ where: { campaignId } });
   if (alreadyMaterialised === 0) {
-    const { eligible, skipped } = await materialiseRecipients(campaignId, campaign.listId);
+    const range =
+      campaign.recipientRangeStart !== null && campaign.recipientRangeEnd !== null
+        ? { start: campaign.recipientRangeStart, end: campaign.recipientRangeEnd }
+        : null;
+    const { eligible, skipped } = await materialiseRecipients(campaignId, campaign.listId, range);
     if (eligible === 0) {
       throw AppError.unprocessable(
-        'Every recipient on this list is suppressed or unsubscribed; there is nothing to send',
+        range && eligible + skipped === 0
+          ? `No recipients fall between rows ${range.start} and ${range.end} of this list`
+          : 'Every recipient on this list is suppressed or unsubscribed; there is nothing to send',
       );
     }
     await prisma.campaign.update({
@@ -627,6 +671,9 @@ export async function duplicateCampaign(userId: string, campaignId: string, cont
       fromName: source.fromName,
       replyToEmail: source.replyToEmail,
       sendRatePerSecond: source.sendRatePerSecond,
+      batchSize: source.batchSize,
+      recipientRangeStart: source.recipientRangeStart,
+      recipientRangeEnd: source.recipientRangeEnd,
       status: 'DRAFT',
       totalRecipients: 0,
     },

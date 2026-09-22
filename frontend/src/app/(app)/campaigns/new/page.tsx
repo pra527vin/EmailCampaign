@@ -46,6 +46,9 @@ function SendComposer() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [replyTo, setReplyTo] = useState('');
+  const [batchSize, setBatchSize] = useState('');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
 
   const [preview, setPreview] = useState<EmailPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -102,7 +105,26 @@ function SendComposer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateId, listId]);
 
-  const ready = Boolean(listId && templateId && subject.trim() && name.trim());
+  // Either both blank (whole list) or both set with start no greater than
+  // end -- a lone start or end cannot become a query.
+  const rangeValid =
+    (!rangeStart.trim() && !rangeEnd.trim()) ||
+    (rangeStart.trim() !== '' &&
+      rangeEnd.trim() !== '' &&
+      Number(rangeStart) >= 1 &&
+      Number(rangeEnd) >= Number(rangeStart));
+
+  const ready = Boolean(listId && templateId && subject.trim() && name.trim() && rangeValid);
+
+  // The exact count needs the server (invalid rows and suppressions both
+  // shrink it), but the range width is a solid upper bound to show here.
+  const targetCount =
+    rangeStart.trim() && rangeEnd.trim()
+      ? Math.min(
+          Number(rangeEnd) - Number(rangeStart) + 1,
+          selectedList?.recipientCount ?? Number.POSITIVE_INFINITY,
+        )
+      : (selectedList?.recipientCount ?? 0);
 
   async function handleSend() {
     setSubmitting(true);
@@ -115,6 +137,10 @@ function SendComposer() {
         templateId,
         subject: subject.trim(),
         ...(replyTo.trim() ? { replyToEmail: replyTo.trim().toLowerCase() } : {}),
+        ...(batchSize.trim() ? { batchSize: Number(batchSize) } : {}),
+        ...(rangeStart.trim() && rangeEnd.trim()
+          ? { recipientRangeStart: Number(rangeStart), recipientRangeEnd: Number(rangeEnd) }
+          : {}),
       });
 
       await api.post(`/campaigns/${campaign.id}/start`);
@@ -280,6 +306,55 @@ function SendComposer() {
                 />
               </Field>
 
+              <Field
+                label="Batch size"
+                htmlFor="batchSize"
+                error={fieldErrors['batchSize']}
+                hint="Recipients per send chunk, e.g. 50 -- the next chunk only picks up recipients not already sent to. Leave blank for the platform default."
+              >
+                <Input
+                  id="batchSize"
+                  type="number"
+                  min={1}
+                  value={batchSize}
+                  onChange={(event) => setBatchSize(event.target.value)}
+                  placeholder="Platform default"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field
+                  label="From recipient #"
+                  htmlFor="rangeStart"
+                  error={fieldErrors['recipientRangeStart']}
+                  hint="Row number in the uploaded list. Leave both blank for the whole list."
+                >
+                  <Input
+                    id="rangeStart"
+                    type="number"
+                    min={1}
+                    value={rangeStart}
+                    onChange={(event) => setRangeStart(event.target.value)}
+                    placeholder="1"
+                  />
+                </Field>
+                <Field
+                  label="To recipient #"
+                  htmlFor="rangeEnd"
+                  error={fieldErrors['recipientRangeEnd']}
+                  hint="e.g. 50, then send the next campaign from 51."
+                >
+                  <Input
+                    id="rangeEnd"
+                    type="number"
+                    min={1}
+                    value={rangeEnd}
+                    onChange={(event) => setRangeEnd(event.target.value)}
+                    placeholder="50"
+                  />
+                </Field>
+              </div>
+
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                 <p>
                   Sending from <strong>{sender?.fromName ? `${sender.fromName} <${sender.fromEmail}>` : sender?.fromEmail}</strong>
@@ -301,7 +376,9 @@ function SendComposer() {
             </Button>
             {!ready && (
               <p className="mt-2 text-center text-xs text-slate-500">
-                Choose a list and a template, and give the campaign a name and a subject.
+                {!rangeValid
+                  ? 'Give both a starting and ending recipient number, with start no greater than end.'
+                  : 'Choose a list and a template, and give the campaign a name and a subject.'}
               </p>
             )}
           </div>
@@ -349,7 +426,7 @@ function SendComposer() {
               Cancel
             </Button>
             <Button variant="success" onClick={handleSend} loading={submitting}>
-              Start sending to {formatNumber(selectedList?.recipientCount ?? 0)}
+              Start sending to up to {formatNumber(targetCount)}
             </Button>
           </div>
         }
@@ -364,26 +441,38 @@ function SendComposer() {
             <ConfirmRow label="Subject" value={subject || '—'} />
             <ConfirmRow label="Template" value={selectedTemplate?.name ?? '—'} />
             <ConfirmRow
+              label="Recipient range"
+              value={rangeStart.trim() && rangeEnd.trim() ? `Rows ${rangeStart}–${rangeEnd}` : 'Whole list'}
+            />
+            <ConfirmRow
               label="Recipients"
-              value={selectedList ? `${formatNumber(selectedList.recipientCount)} addresses` : '—'}
+              value={selectedList ? `up to ${formatNumber(targetCount)} addresses` : '—'}
             />
             <ConfirmRow
               label="Estimated duration"
-              value={
-                selectedList && sender
-                  ? estimateDuration(selectedList.recipientCount, sender.configuredSendRate)
-                  : '—'
-              }
+              value={sender ? estimateDuration(targetCount, sender.configuredSendRate) : '—'}
+            />
+            <ConfirmRow
+              label="Batch size"
+              value={batchSize.trim() ? `${formatNumber(Number(batchSize))} at a time` : 'Platform default'}
             />
             <ConfirmRow label="Unsubscribe" value="List-Unsubscribe header + in-body link" />
           </dl>
+
+          {rangeStart.trim() && rangeEnd.trim() && (
+            <Alert tone="info">
+              Only rows {rangeStart}–{rangeEnd} of the list are sent to. Rows outside that range
+              (including any earlier or later batch) are left untouched, so they are safe to send in
+              a separate campaign without repeating anyone.
+            </Alert>
+          )}
 
           <Alert tone="info">
             Messages are queued and delivered one per recipient at{' '}
             {sender?.configuredSendRate ?? '—'} messages/second. Nothing is placed in CC or BCC.
           </Alert>
 
-          <Alert tone="warning" title={`Send to ${formatNumber(selectedList?.recipientCount ?? 0)} recipients?`}>
+          <Alert tone="warning" title={`Send to up to ${formatNumber(targetCount)} recipients?`}>
             This starts delivery immediately. You can pause or cancel from the campaign page, but
             messages already handed to SES cannot be recalled. Only send to people who opted in to
             hear from you.

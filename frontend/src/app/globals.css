@@ -103,3 +103,194 @@
     background-attachment: local, local, scroll, scroll;
   }
 }
+
+/* ── Compose: the visual email editor ──────────────────────────────────────
+   These sit outside `@layer components` deliberately. The craft.js overlay
+   rules have to beat whatever inline styles a block carries, and a layered
+   rule would lose that fight. */
+
+/* Selection overlay drawn over a block on the canvas. */
+.craft-node-hover {
+  outline: 1px dashed rgb(14 90 167 / 0.53) !important;
+  outline-offset: -1px;
+}
+
+.craft-node-selected {
+  outline: 2px solid #0e5aa7 !important;
+  outline-offset: -2px;
+}
+
+/* The floating name tag above a selected block. `pointer-events` is off so it
+   never swallows a drag aimed at the block, but its buttons opt back in. */
+.craft-node-label {
+  position: absolute;
+  top: -22px;
+  left: -2px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 7px;
+  border-radius: 5px 5px 5px 0;
+  background: #0e5aa7;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.craft-node-label button {
+  pointer-events: all;
+}
+
+/* Inline text editing: the block's own selection outline is the affordance,
+   so the browser's focus ring would only double it. */
+.compose-canvas [contenteditable],
+.compose-canvas [contenteditable]:focus {
+  outline: none;
+}
+
+/* Reserved so the canvas does not shift sideways when a tall design starts
+   scrolling. */
+.compose-canvas-scroll {
+  scrollbar-gutter: stable;
+}
+
+/* Settings-panel slider. Styled by hand rather than with `accent-color`,
+   which makes Chromium render a near-black track for contrast. */
+.compose-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.compose-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #0e5aa7 0 var(--pct, 0%),
+    #d6dee7 var(--pct, 0%) 100%
+  );
+}
+
+.compose-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: #0e5aa7;
+  box-shadow: 0 1px 2px rgb(15 27 42 / 0.25);
+}
+
+.compose-range::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: #d6dee7;
+}
+
+.compose-range::-moz-range-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: #0e5aa7;
+}
+
+.compose-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  background: #0e5aa7;
+  box-shadow: 0 1px 2px rgb(15 27 42 / 0.25);
+}
+
+.compose-range:focus-visible::-webkit-slider-thumb,
+.compose-range:focus-visible::-moz-range-thumb {
+  outline: 2px solid rgb(14 90 167 / 0.5);
+  outline-offset: 2px;
+}
+
+/* -- The canvas is an email, not a page ----------------------------------- */
+
+/*
+ * Tailwind's preflight normalises the whole app: border-box sizing, a 1.5
+ * line-height, zeroed heading and list margins, undecorated links, block
+ * images. A mail client applies none of that. So a block that leans on any
+ * browser default -- a banner's height, a pasted list, an inline link, a table
+ * cell's box model -- sat differently on the canvas than it arrived in the
+ * inbox.
+ *
+ * These rules put the user-agent defaults back, inside the composed email
+ * only. `revert` rolls each property back past the author origin, and because
+ * these are ordinary selectors a block's own inline styles still win outright:
+ * only the properties nothing sets fall back to what a mail client would do.
+ *
+ * Deliberately outside `@layer components`: preflight is a layered author
+ * rule, and an unlayered one has to beat it.
+ */
+.compose-email,
+.compose-email *,
+.compose-email *::before,
+.compose-email *::after {
+  /* The big one. `width` and `min-height` mean something different either
+     side of this, which is why a padded banner measured short on the canvas. */
+  box-sizing: revert;
+  border-width: revert;
+  border-style: revert;
+  border-color: revert;
+}
+
+/* Preflight sets 1.5 on <html>; a mail client leaves it at `normal`, which is
+   nearer 1.2 and changes the height of every block that does not set its own. */
+.compose-email {
+  line-height: normal;
+}
+
+.compose-email :is(h1, h2, h3, h4, h5, h6, p, blockquote, dl, dd, figure, pre, hr) {
+  margin: revert;
+  font-size: revert;
+  font-weight: revert;
+}
+
+.compose-email :is(ul, ol) {
+  list-style: revert;
+  margin: revert;
+  padding: revert;
+}
+
+/* The exported document carries `a { color: inherit }` in its own <style>, so
+   the canvas matches that rather than reverting to the browser's link blue.
+   The underline is the browser's, because the email has no rule for it. */
+.compose-email a {
+  color: inherit;
+  text-decoration: revert;
+}
+
+.compose-email :is(b, strong) {
+  font-weight: revert;
+}
+
+.compose-email :is(img, svg, video) {
+  display: revert;
+  vertical-align: revert;
+  max-width: revert;
+  height: revert;
+}
+
+.compose-email table {
+  border-collapse: revert;
+  border-color: revert;
+  text-indent: revert;
+}
+
+.compose-email :is(td, th) {
+  text-align: revert;
+  font-weight: revert;
+  vertical-align: revert;
+}

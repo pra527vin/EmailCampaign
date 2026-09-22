@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
   { href: '/lists', label: 'Recipients', icon: 'lists' },
   { href: '/templates', label: 'Templates', icon: 'templates' },
+  { href: '/compose', label: 'Compose', icon: 'compose' },
   { href: '/campaigns', label: 'Campaigns', icon: 'campaigns' },
   { href: '/settings', label: 'Settings', icon: 'settings' },
 ] as const satisfies ReadonlyArray<{ href: string; label: string; icon: GlyphName }>;
@@ -22,6 +23,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const isCompose = pathname === '/compose';
 
   useEffect(() => {
     let cancelled = false;
@@ -180,14 +183,22 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        {/* The reference's 30/34/56 padding from `lg` up, where its sidebar
-            exists; tighter below that, because 34px of gutter on a 320px phone
-            is a fifth of the screen. The cap keeps a 2560px monitor from
-            stretching tables to an unreadable line length -- the reference is
-            drawn at 1440 and says nothing about what happens past that. */}
-        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-[34px] lg:pb-14 lg:pt-[30px]">
-          <div className="mx-auto w-full max-w-[1880px]">{children}</div>
-        </main>
+        {/* Compose is a full-screen workspace, not a document: it gets no
+            gutter and no width cap, so the canvas uses every pixel the
+            viewport gives it on any screen size. Every other page keeps the
+            reference's 30/34/56 padding from `lg` up, where its sidebar
+            exists, tighter below that (34px of gutter on a 320px phone is a
+            fifth of the screen), and the width cap that keeps a 2560px
+            monitor from stretching tables to an unreadable line length -- the
+            reference is drawn at 1440 and says nothing about what happens
+            past that. */}
+        {isCompose ? (
+          <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
+        ) : (
+          <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-[34px] lg:pb-14 lg:pt-[30px]">
+            <div className="mx-auto w-full max-w-[1880px]">{children}</div>
+          </main>
+        )}
       </div>
     </div>
   );

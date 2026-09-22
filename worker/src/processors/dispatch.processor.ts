@@ -13,6 +13,13 @@ const log = createLogger('worker:dispatch');
 /**
  * Fans a campaign out into one queue job per recipient.
  *
+ * Recipients are claimed in non-overlapping chunks of `batchSize` (the
+ * campaign's own override, or `DISPATCH_BATCH_SIZE` by default): each chunk is
+ * selected in `id` order, flipped from PENDING to QUEUED, and only then
+ * enqueued. That flip is what makes the batches non-overlapping -- a
+ * recipient moved out of PENDING can never be selected by the next chunk, so
+ * the same recipient can never be queued, and therefore never sent, twice.
+ *
  * Paged with a keyset cursor rather than OFFSET so cost stays flat across a
  * million-row list, and re-checks the campaign status between pages so a pause
  * or cancel takes effect within one batch instead of after the whole list has
@@ -27,7 +34,7 @@ export async function processDispatch(job: Job<CampaignDispatchJob>): Promise<{
 
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
-    select: { id: true, status: true, name: true },
+    select: { id: true, status: true, name: true, batchSize: true },
   });
 
   if (!campaign) {
@@ -46,7 +53,7 @@ export async function processDispatch(job: Job<CampaignDispatchJob>): Promise<{
   });
 
   const queue = getEmailSendQueue();
-  const batchSize = env.DISPATCH_BATCH_SIZE;
+  const batchSize = campaign.batchSize ?? env.DISPATCH_BATCH_SIZE;
 
   let cursor: string | undefined;
   let enqueued = 0;

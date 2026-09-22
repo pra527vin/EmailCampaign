@@ -103,6 +103,11 @@ export interface Campaign {
   fromEmail: string;
   fromName: string | null;
   replyToEmail: string | null;
+  /** Recipients per dispatch chunk. Null uses the platform default. */
+  batchSize: number | null;
+  /** Restricts the campaign to these list rows (1-based, inclusive). Both null means the whole list. */
+  recipientRangeStart: number | null;
+  recipientRangeEnd: number | null;
   totalRecipients: number;
   sentCount: number;
   failedCount: number;

@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import { randomUUID } from 'node:crypto';
 import { pinoHttp } from 'pino-http';
 import { createLogger, loadEnv, prisma } from '@mailstrive/shared';
-import { apiRouter } from './routes/index.js';
+import { publicApiRouter, v1Router } from './routes/index.js';
 import { apiRateLimiter } from './middleware/rate-limit.js';
 import { csrfProtection } from './middleware/csrf.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
@@ -106,7 +106,10 @@ export function createApp(): Express {
       );
   });
 
-  app.use('/api', apiRouter);
+  // `/api/unsubscribe` and `/api/webhooks` are stable, unversioned contracts
+  // (see routes/index.ts); everything else is versioned at `/api/v1`.
+  app.use('/api', publicApiRouter);
+  app.use('/api/v1', v1Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -156,7 +156,21 @@ const recipientStatus = z.enum([
   'UNSUBSCRIBED', 'SKIPPED',
 ]);
 
-export const createCampaignBody = z.object({
+/**
+ * A recipient range is given as a pair or not at all: half a pair (a start
+ * with no end, or vice versa) cannot be turned into a query.
+ */
+function validRangePair(value: {
+  recipientRangeStart?: number | undefined;
+  recipientRangeEnd?: number | undefined;
+}): boolean {
+  const { recipientRangeStart: start, recipientRangeEnd: end } = value;
+  if (start === undefined && end === undefined) return true;
+  if (start === undefined || end === undefined) return false;
+  return start <= end;
+}
+
+const campaignBodyShape = z.object({
   name: z.string().trim().min(1, 'Give the campaign a name').max(150),
   listId: uuidParam,
   templateId: uuidParam,
@@ -164,9 +178,26 @@ export const createCampaignBody = z.object({
   fromName: z.string().trim().max(150).optional(),
   replyToEmail: z.string().trim().toLowerCase().email().max(254).optional().or(z.literal('')),
   sendRatePerSecond: z.coerce.number().int().min(1).max(1_000).optional(),
+  /** Recipients per dispatch chunk, e.g. 50 then the next 50. */
+  batchSize: z.coerce.number().int().min(1).max(10_000).optional(),
+  /**
+   * Restricts the campaign to CSV rows `[recipientRangeStart, recipientRangeEnd]`
+   * of the list (both inclusive, 1-based, matching `Recipient.rowNumber`), so
+   * one list can be split across several campaigns -- rows 1-50 in this one,
+   * 51-100 in the next -- with no row landing in two campaigns.
+   */
+  recipientRangeStart: z.coerce.number().int().min(1).optional(),
+  recipientRangeEnd: z.coerce.number().int().min(1).optional(),
 });
 
-export const updateCampaignBody = createCampaignBody.partial();
+const rangePairRefinement = {
+  message: 'Give both a starting and ending recipient number, with start no greater than end',
+  path: ['recipientRangeEnd'] as (string | number)[],
+};
+
+export const createCampaignBody = campaignBodyShape.refine(validRangePair, rangePairRefinement);
+
+export const updateCampaignBody = campaignBodyShape.partial().refine(validRangePair, rangePairRefinement);
 
 export const campaignListQuery = paginationQuery.extend({
   status: campaignStatus.optional(),

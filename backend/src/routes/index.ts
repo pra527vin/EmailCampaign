@@ -14,20 +14,33 @@ import { templateRouter } from './template.routes.js';
 import { unsubscribeRouter } from './unsubscribe.routes.js';
 import { webhookRouter } from './webhook.routes.js';
 
-export const apiRouter = Router();
+/**
+ * Stable, unversioned surface.
+ *
+ * `/unsubscribe` is baked into the `List-Unsubscribe` header of every email
+ * already sent, and `/webhooks/ses` is registered with AWS SNS as a fixed
+ * endpoint URL. Neither can move behind a version prefix without breaking a
+ * contract with someone outside this codebase, so they stay off `/v1`
+ * permanently. See docs/adr/0002-api-versioning.md.
+ */
+export const publicApiRouter = Router();
+publicApiRouter.use('/unsubscribe', unsubscribeRouter);
+publicApiRouter.use('/webhooks', webhookRouter);
 
-// --- Public --------------------------------------------------------------
-apiRouter.use('/auth', authRouter);
-apiRouter.use('/unsubscribe', unsubscribeRouter);
-apiRouter.use('/webhooks', webhookRouter);
+/**
+ * Versioned surface: everything the bundled frontend calls. Mounted at
+ * /api/v1 so its response shapes can change behind a new version without
+ * breaking existing clients once one exists beyond this frontend.
+ */
+export const v1Router = Router();
 
-// --- Authenticated -------------------------------------------------------
-apiRouter.use('/recipient-lists', requireAuth, recipientListRouter);
-apiRouter.use('/templates', requireAuth, templateRouter);
-apiRouter.use('/campaigns', requireAuth, campaignRouter);
-apiRouter.use('/settings', requireAuth, settingsRouter);
+v1Router.use('/auth', authRouter);
+v1Router.use('/recipient-lists', requireAuth, recipientListRouter);
+v1Router.use('/templates', requireAuth, templateRouter);
+v1Router.use('/campaigns', requireAuth, campaignRouter);
+v1Router.use('/settings', requireAuth, settingsRouter);
 
-apiRouter.get(
+v1Router.get(
   '/dashboard/stats',
   requireAuth,
   validate({ query: dashboardStatsQuery }),
@@ -53,7 +66,7 @@ apiRouter.get(
  * Preview is a POST because the editor sends an unsaved body, which can be
  * megabytes and does not belong in a URL.
  */
-apiRouter.post(
+v1Router.post(
   '/preview',
   requireAuth,
   validate({ body: previewBody }),
